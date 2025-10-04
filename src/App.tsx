@@ -1,4 +1,5 @@
-import AcidJurassicClicker from "./components/AcidJurassicClicker";
+import AcidJurassicClicker from "./AcidJurassicClicker";
+
 
 export default function App() {
   return (
