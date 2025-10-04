@@ -2,19 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* --- Optional custom AcidJurassic styles --- */
-html, body {
-  @apply bg-gray-900 text-gray-100 min-h-screen;
-}
-
-/* Toxic green glow for hover and emphasis */
-.acid-glow {
-  text-shadow: 0 0 10px #00ff99, 0 0 20px #00ff99;
-}
-
-/* Optional: neon button pulse */
-.button-glow {
-  @apply transition transform hover:scale-105;
-  box-shadow: 0 0 15px rgba(0, 255, 153, 0.5);
-}
-
+/* Optional extras */
+html, body { @apply bg-gray-900 text-gray-100 min-h-screen; }
+.acid-glow { text-shadow: 0 0 10px #00ff99, 0 0 20px #00ff99; }
+.button-glow { @apply transition transform hover:scale-105; box-shadow: 0 0 15px rgba(0,255,153,.5); }
