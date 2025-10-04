@@ -1,18 +1,7 @@
 import { useEffect, useState } from "react";
 
-type Thingy = {
-  id: string;
-  label: string;
-  hint?: string;
-  action?: string;
-};
-
-type Category = {
-  key: string;
-  name: string;
-  icon: string;
-  items: Thingy[];
-};
+type Thingy = { id: string; label: string; hint?: string };
+type Category = { key: string; name: string; icon: string; items: Thingy[] };
 
 const CATEGORIES: Category[] = [
   {
@@ -20,7 +9,7 @@ const CATEGORIES: Category[] = [
     name: "Audio Triggers",
     icon: "🎧",
     items: [
-      { id: "BONK", label: "BONK", hint: "Classic" },
+      { id: "BONK", label: "BONK" },
       { id: "SEXY_SAX", label: "Sexy Sax" },
       { id: "HOW_RUDE", label: "How Rude!" },
       { id: "DUNDUN", label: "Dun Dun Duuun" },
@@ -65,7 +54,7 @@ export default function AcidJurassicClicker() {
   function handleClick(label: string) {
     if (!connected) return setStatus("Connect first!");
     setSelected(label);
-    setStatus(`Triggered: ${label}`);
+    setStatus(`Triggered → ${label}`);
   }
 
   return (
