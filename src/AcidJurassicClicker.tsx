@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Item = { id: string; label: string };
 
@@ -18,99 +18,183 @@ const PANEL_BUTTONS: Item[] = [
   { id: "RIMSHOT", label: "Joke Drum" },
 ];
 
-function Btn({
-  children,
-  onClick,
-  disabled,
-  outline = false,
-  pill = false,
-  size = "xl",
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  outline?: boolean;
-  pill?: boolean;
-  size?: "lg" | "xl";
-}) {
-  const base =
-    "inline-flex items-center justify-center font-semibold transition focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed";
-  const shape = pill ? "rounded-full" : size === "xl" ? "rounded-2xl" : "rounded-xl";
-  const pad = size === "xl" ? "py-3.5 px-6 text-lg" : "py-3 px-5 text-base";
-  const palette = outline
-    ? "border-2 border-emerald-400/80 text-emerald-200 hover:bg-emerald-500/10"
-    : "bg-emerald-600 text-white hover:bg-emerald-500";
-  return (
-    <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${shape} ${pad} ${palette}`}>
-      {children}
-    </button>
-  );
-}
+const TWITCH_AUTHORIZE = "https://id.twitch.tv/oauth2/authorize";
+const TWITCH_VALIDATE  = "https://id.twitch.tv/oauth2/validate";
 
 export default function AcidJurassicClicker() {
-  const [authed, setAuthed] = useState(true); // set to false to show login card
+  // auth
+  const [authed, setAuthed] = useState(false);
+  const [username, setUsername] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+
+  // panel gating
   const [connected, setConnected] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [status, setStatus] = useState("Bot Offline");
-  const allDisabled = !connected || !enabled;
 
-  const trigger = (item: Item) => {
-    if (allDisabled) return;
+  // Buttons are active only when you are logged in + connected + enabled
+  const buttonsDisabled = useMemo(
+    () => !authed || !connected || !enabled,
+    [authed, connected, enabled]
+  );
+
+  useEffect(() => {
+    setStatus(connected ? "Bot Online" : "Bot Offline");
+  }, [connected]);
+
+  // Parse token from hash OR from localStorage, then validate with Twitch
+  useEffect(() => {
+    async function validateAndStore(tok: string) {
+      try {
+        const res = await fetch(TWITCH_VALIDATE, {
+          headers: { Authorization: `OAuth ${tok}` },
+        });
+        if (!res.ok) throw new Error("validate failed");
+        const data = await res.json(); // { login, user_id, client_id, ... }
+        setUsername(data.login ?? null);
+        setAuthed(true);
+        setToken(tok);
+        localStorage.setItem("twitch_token", tok);
+        // clear the hash so refreshes are clean
+        if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+      } catch {
+        // bad/expired token
+        localStorage.removeItem("twitch_token");
+        setAuthed(false);
+        setUsername(null);
+        setToken(null);
+      }
+    }
+
+    // 1) If Twitch just redirected us back with #access_token=...
+    if (location.hash.includes("access_token=")) {
+      const params = new URLSearchParams(location.hash.slice(1));
+      const tok = params.get("access_token");
+      if (tok) validateAndStore(tok);
+      return;
+    }
+
+    // 2) Else try existing token
+    const existing = localStorage.getItem("twitch_token");
+    if (existing) validateAndStore(existing);
+  }, []);
+
+  function handleLogin() {
+    const clientId = import.meta.env.VITE_TWITCH_CLIENT_ID;
+    if (!clientId) {
+      alert("Missing VITE_TWITCH_CLIENT_ID in your Vercel Environment Variables.");
+      return;
+    }
+    const redirect = window.location.origin; // send back to the same page
+    const url = new URL(TWITCH_AUTHORIZE);
+    url.searchParams.set("client_id", clientId);
+    url.searchParams.set("redirect_uri", redirect);
+    url.searchParams.set("response_type", "token"); // implicit flow
+    // Minimal scope is fine for identity; add more (e.g., user:read:email) if needed.
+    url.searchParams.set("scope", "");
+    window.location.href = url.toString();
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("twitch_token");
+    setAuthed(false);
+    setUsername(null);
+    setToken(null);
+  }
+
+  function trigger(item: Item) {
+    if (buttonsDisabled) return;
     setStatus(`Triggered: ${item.label}`);
-    // TODO: call your backend / Streamer.bot here
-  };
+    // TODO: send to your backend or Streamer.bot here, including token if needed
+    // fetch('/api/trigger', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id:item.id, token }) })
+  }
 
-  // Login card (simple)
+  // ---------- UI ----------
+
+  // If not logged in, show the "WELCOME / Login with Twitch" card
   if (!authed) {
     return (
-      <section className="rounded-2xl border-2 border-emerald-500/50 bg-neutral-800 shadow-2xl p-8 sm:p-10">
-        <h1 className="text-center text-4xl sm:text-5xl font-extrabold text-emerald-400 mb-8">
-          Welcome to Isla Tóxica’s Clicker
+      <section className="rounded-2xl border border-emerald-500/60 bg-neutral-900/90 shadow-[0_0_25px_rgba(0,255,153,0.25)] p-8 text-center">
+        <h1 className="text-3xl font-extrabold text-emerald-400 drop-shadow-[0_0_12px_rgba(0,255,153,.5)] mb-4">
+          WELCOME!
         </h1>
-        <p className="text-center text-gray-200 max-w-xl mx-auto mb-10">
-          Experience real-time interaction. Log in to start using the clicker!
+        <p className="text-gray-300 max-w-xl mx-auto mb-8">
+          Log in with Twitch to use the clicker. No personal data is stored — we only confirm your identity with Twitch.
         </p>
-        <div className="flex justify-center">
-          <Btn size="xl" onClick={() => setAuthed(true)}>Login with Twitch</Btn>
-        </div>
+        <button
+          onClick={handleLogin}
+          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 text-black font-semibold py-3 px-6 hover:bg-emerald-500 transition shadow-[0_2px_6px_rgba(0,0,0,.4)]"
+        >
+          Login with Twitch
+        </button>
       </section>
     );
   }
 
-  // Main panel
+  // Logged in view
   return (
-    <section className="rounded-2xl border-2 border-emerald-500/50 bg-neutral-800 shadow-2xl overflow-hidden">
+    <section className="rounded-2xl border border-emerald-500/60 bg-neutral-900/90 shadow-[0_0_25px_rgba(0,255,153,0.25)] overflow-hidden">
       {/* Header bar */}
-      <div className="bg-emerald-600/90 text-black px-6 py-5">
-        <h2 className="text-2xl font-bold">The Isla Tóxica Clicker</h2>
-        <p className="text-black/80 font-medium">Connected as: AcidJurassic</p>
+      <div className="bg-emerald-600/90 text-black px-6 py-5 shadow-[0_0_15px_rgba(0,255,153,0.4)]">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">The Isla Tóxica Clicker</h2>
+            <p className="text-black/80 font-medium">
+              Connected as: {username ?? "…" }
+            </p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="rounded-full bg-black/10 border border-black/20 px-4 py-1.5 font-semibold hover:bg-black/20"
+          >
+            Log out
+          </button>
+        </div>
       </div>
 
       <div className="p-6 sm:p-8">
-        {/* Top row “Thingy” buttons */}
-        <div className="flex flex-wrap gap-4 mb-6">
+        {/* Top row “Thingy” buttons (outline, pill) */}
+        <div className="flex flex-wrap justify-center gap-4 mb-6">
           {TOP_BUTTONS.map((b) => (
-            <Btn key={b.id} outline pill size="xl" disabled={allDisabled} onClick={() => trigger(b)}>
+            <button
+              key={b.id}
+              onClick={() => trigger(b)}
+              disabled={buttonsDisabled}
+              className="rounded-full px-5 py-2 text-lg font-semibold
+                         bg-transparent border-2 border-emerald-400 text-emerald-300
+                         hover:bg-emerald-500/15 transition
+                         disabled:opacity-40 disabled:cursor-not-allowed"
+            >
               {b.label}
-            </Btn>
+            </button>
           ))}
         </div>
 
-        {/* Content card */}
-        <div className="rounded-xl border border-emerald-400/40 bg-neutral-900 p-6 sm:p-8 shadow-inner mb-6">
-          <h3 className="text-3xl font-extrabold text-emerald-400 text-center mb-3">WELCOME!</h3>
-          <div className="h-px w-24 bg-emerald-400/60 mx-auto mb-5" />
-          <p className="text-center text-gray-200 max-w-2xl mx-auto">
-            Select a “Thingy” to interact. Buttons work only when <span className="font-semibold">Connected</span> and{" "}
-            <span className="font-semibold">Enabled</span>.
+        {/* Info / content area */}
+        <div className="rounded-xl border border-emerald-500/40 bg-neutral-800/70 p-6 sm:p-8 shadow-inner mb-6">
+          <h3 className="text-2xl font-extrabold text-emerald-400 text-center mb-3">
+            WELCOME!
+          </h3>
+          <p className="text-center text-gray-300 max-w-2xl mx-auto">
+            Select a “Thingy” to interact. Buttons work only when{" "}
+            <strong>Connected</strong> and <strong>Enabled</strong>.
           </p>
 
           {/* Larger inner buttons */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-6">
             {PANEL_BUTTONS.map((i) => (
-              <Btn key={i.id} size="xl" disabled={allDisabled} onClick={() => trigger(i)}>
+              <button
+                key={i.id}
+                onClick={() => trigger(i)}
+                disabled={buttonsDisabled}
+                className="bg-emerald-600 text-black font-semibold rounded-xl py-3
+                           hover:bg-emerald-500 shadow-[0_2px_6px_rgba(0,0,0,.4)]
+                           hover:shadow-[0_0_12px_rgba(0,255,153,.6)]
+                           transition-all duration-200
+                           disabled:opacity-40 disabled:cursor-not-allowed"
+              >
                 {i.label}
-              </Btn>
+              </button>
             ))}
           </div>
         </div>
@@ -118,20 +202,25 @@ export default function AcidJurassicClicker() {
         {/* Controls + status */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Btn
-              size="lg"
+            <button
               onClick={() => {
                 const next = !connected;
                 setConnected(next);
                 setStatus(next ? "Bot Online" : "Bot Offline");
               }}
+              className={`px-6 py-2 rounded-full font-semibold transition
+                          ${connected ? "bg-emerald-500 text-black hover:bg-emerald-400" : "bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
             >
               {connected ? "Connected" : "Connect"}
-            </Btn>
+            </button>
 
-            <Btn size="lg" outline={!enabled} onClick={() => setEnabled((e) => !e)}>
+            <button
+              onClick={() => setEnabled((e) => !e)}
+              className={`px-6 py-2 rounded-full font-semibold transition
+                          ${enabled ? "bg-emerald-500 text-black hover:bg-emerald-400" : "bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
+            >
               {enabled ? "Enabled" : "Enable"}
-            </Btn>
+            </button>
           </div>
 
           <div className={`px-5 py-2 rounded-full font-semibold ${connected ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
@@ -145,4 +234,5 @@ export default function AcidJurassicClicker() {
     </section>
   );
 }
+
 
