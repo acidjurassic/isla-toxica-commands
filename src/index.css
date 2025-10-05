@@ -1,9 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-/* Isla Tóxica black background with subtle acid glow */
+/* Pure CSS background + text color */
 body {
-  @apply text-gray-100;
+  color: #e5e7eb; /* Tailwind's gray-200 */
   background-color: #000;
   background-image:
     radial-gradient(circle at 30% -20%, rgba(0,255,153,0.12), transparent 60%),
