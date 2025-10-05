@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 
-type Thingy = { id: string; label: string; hint?: string };
-type Category = { key: string; name: string; icon: string; items: Thingy[] };
+type ButtonItem = { id: string; label: string };
+type Category = { key: string; name: string; icon: string; items: ButtonItem[] };
 
 const CATEGORIES: Category[] = [
-  // 1) AUDIO
   {
     key: "audio",
     name: "Audio Triggers",
@@ -15,10 +14,9 @@ const CATEGORIES: Category[] = [
       { id: "HOW_RUDE", label: "How Rude!" },
       { id: "DUNDUN", label: "Dun Dun Duuun" },
       { id: "CANTINA", label: "Cantina Band" },
-      { id: "RIMSHOT", label: "Joke Drum Hit" },
+      { id: "RIMSHOT", label: "Joke Drum" },
     ],
   },
-  // 2) COMBAT
   {
     key: "combat",
     name: "Combat Events",
@@ -27,54 +25,35 @@ const CATEGORIES: Category[] = [
       { id: "THARGOID_ALERT", label: "Thargoid Alert" },
       { id: "SHIP_DESTROYED", label: "Ship Destroyed" },
       { id: "METEOR_STRIKE", label: "Meteor Strike" },
-      { id: "WING_JOIN", label: "Wing Join" },
-      { id: "ALERT_RED", label: "Red Alert" },
       { id: "NUKE", label: "Containment Breach" },
+      { id: "ALERT_RED", label: "Red Alert" },
     ],
   },
-  // 3) GLOWSPIKE
   {
     key: "squad",
     name: "Glowspike Squad",
     icon: "🧬",
     items: [
       { id: "GLOW_ROAR", label: "Glow Roar" },
-      { id: "CONTAINMENT_UNLOCK", label: "Containment Unlock" },
       { id: "EGG_HATCH", label: "Egg Hatch" },
       { id: "SQUAD_PING", label: "Squad Ping" },
-      { id: "EMOTE_STORM", label: "Emote Storm" },
-      { id: "HYPE", label: "Hype Surge" },
+      { id: "HYPE_SURGE", label: "Hype Surge" },
     ],
   },
-  // 4) UTILITY
   {
     key: "utility",
     name: "Utility Tools",
-    icon: "🎮",
+    icon: "⚙️",
     items: [
-      { id: "BINGO_NEW", label: "Bingo: New Card" },
+      { id: "CLEAR_OVERLAYS", label: "Clear Overlays" },
       { id: "RANDOMIZER", label: "Randomizer" },
       { id: "CHAT_PING", label: "Chat Ping" },
-      { id: "CLEAR_OVERLAYS", label: "Clear Overlays" },
-      { id: "MUTE_SFX", label: "Mute SFX" },
-      { id: "UNMUTE_SFX", label: "Unmute SFX" },
     ],
   },
 ];
 
-const randomSessionId = () =>
-  Math.random().toString(36).slice(2, 9).toUpperCase();
-
 export default function AcidJurassicClicker() {
   const [connected, setConnected] = useState(false);
-  // 👇 default ALL categories expanded so you can see the buttons
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    audio: true,
-    combat: true,
-    squad: true,
-    utility: true,
-  });
-  const [sessionId] = useState(randomSessionId());
   const [status, setStatus] = useState("Bot Offline");
   const [selected, setSelected] = useState<string | null>(null);
   const [showDebug, setShowDebug] = useState(false);
@@ -84,16 +63,21 @@ export default function AcidJurassicClicker() {
   }, [connected]);
 
   function handleClick(label: string) {
-    if (!connected) return setStatus("Connect first!");
+    if (!connected) {
+      setStatus("Connect first!");
+      return;
+    }
     setSelected(label);
     setStatus(`Triggered → ${label}`);
   }
 
   return (
-    <div className="bg-gray-800/70 backdrop-blur rounded-2xl border border-emerald-600/30 shadow-[0_0_40px_rgba(0,255,153,.08)] p-5 sm:p-6">
+    <div className="bg-gray-800/80 backdrop-blur-md border border-emerald-500/30 rounded-2xl shadow-[0_0_40px_rgba(0,255,153,.15)] p-8 max-w-5xl w-full">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold acid-glow">☣ Isla Tóxica Commands</h1>
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold acid-glow text-center sm:text-left mb-4 sm:mb-0">
+          ☣ Isla Tóxica Commands
+        </h1>
 
         <div className="flex items-center gap-3">
           <label className="text-xs text-gray-300 flex items-center gap-1 select-none">
@@ -107,58 +91,47 @@ export default function AcidJurassicClicker() {
           </label>
 
           <button
-            type="button"
             onClick={() => setConnected((c) => !c)}
-            className="appearance-none bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-md text-sm border border-emerald-500/40 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
+            className="appearance-none bg-emerald-700 hover:bg-emerald-600 text-white px-4 py-2 rounded-md text-base font-medium border border-emerald-500/40 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
           >
             {connected ? "Disconnect" : "Connect"}
           </button>
         </div>
       </div>
 
-      {/* Status (hidden unless Debug on) */}
+      {/* Status (debug only) */}
       {showDebug && (
         <div className="mb-4 text-sm text-gray-300 space-y-1">
-          <div>Session ID: <span className="font-mono">{sessionId}</span></div>
           <div>Status: {status}</div>
           {selected && (
-            <div>Last Triggered: <span className="font-semibold">{selected}</span></div>
+            <div>
+              Last Triggered: <span className="font-semibold">{selected}</span>
+            </div>
           )}
         </div>
       )}
 
-      {/* Categories */}
-      <div className="space-y-3">
+      {/* Category Panels */}
+      <div className="grid md:grid-cols-2 gap-6">
         {CATEGORIES.map((cat) => (
-          <div key={cat.key} className="rounded-lg overflow-hidden border border-gray-700/60">
-            <button
-              type="button"
-              onClick={() => setExpanded((p) => ({ ...p, [cat.key]: !p[cat.key] }))}
-              className="appearance-none w-full text-left px-3 py-2 bg-gray-700/70 hover:bg-gray-700 text-sm flex items-center justify-between focus:outline-none"
-            >
-              <span className="flex items-center gap-2">
-                <span>{cat.icon}</span>
-                <span className="font-semibold">{cat.name}</span>
-              </span>
-              <span className="text-gray-300">{expanded[cat.key] ? "–" : "+"}</span>
-            </button>
-
-            {expanded[cat.key] && (
-              <div className="p-3 bg-gray-800">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {cat.items.map((item) => (
-                    <button
-                      type="button"
-                      key={item.id}
-                      onClick={() => handleClick(item.label)}
-                      className="appearance-none bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded-md text-sm border border-emerald-500/40 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div
+            key={cat.key}
+            className="p-5 rounded-xl bg-gray-900/80 border border-emerald-700/40 shadow-[0_0_20px_rgba(0,255,153,.1)]"
+          >
+            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2 text-emerald-400">
+              <span>{cat.icon}</span> {cat.name}
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {cat.items.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => handleClick(item.label)}
+                  className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold py-3 rounded-lg text-base border border-emerald-400/40 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition transform hover:scale-105"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
         ))}
       </div>
