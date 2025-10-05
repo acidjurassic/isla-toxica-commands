@@ -18,134 +18,99 @@ const PANEL_BUTTONS: Item[] = [
   { id: "RIMSHOT", label: "Joke Drum" },
 ];
 
-function ThingyButton({
-  children, onClick, disabled, variant = "outline", size = "xl", pill = false,
+function Btn({
+  children,
+  onClick,
+  disabled,
+  outline = false,
+  pill = false,
+  size = "xl",
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
-  variant?: "solid" | "outline";
-  size?: "lg" | "xl";
+  outline?: boolean;
   pill?: boolean;
+  size?: "lg" | "xl";
 }) {
-  const s = size === "xl" ? "btn btn-xl" : "btn btn-lg";
-  const v = variant === "solid" ? "btn-solid" : "btn-outline";
-  const r = pill ? "btn-pill" : "";
+  const base =
+    "inline-flex items-center justify-center font-semibold transition focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed";
+  const shape = pill ? "rounded-full" : size === "xl" ? "rounded-2xl" : "rounded-xl";
+  const pad = size === "xl" ? "py-3.5 px-6 text-lg" : "py-3 px-5 text-base";
+  const palette = outline
+    ? "border-2 border-emerald-400/80 text-emerald-200 hover:bg-emerald-500/10"
+    : "bg-emerald-600 text-white hover:bg-emerald-500";
   return (
-    <button type="button" className={`${s} ${v} ${r}`} onClick={onClick} disabled={disabled}>
+    <button type="button" onClick={onClick} disabled={disabled} className={`${base} ${shape} ${pad} ${palette}`}>
       {children}
     </button>
   );
 }
 
-export default function Panel() {
-  // Design: theme toggle (toxic default, botgoid = orange)
-  const [theme, setTheme] = useState<"toxic" | "botgoid">("toxic");
-  const [authed, setAuthed] = useState(true);      // flip to false to see login card
+export default function AcidJurassicClicker() {
+  const [authed, setAuthed] = useState(true); // set to false to show login card
   const [connected, setConnected] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [status, setStatus] = useState("Bot Offline");
-
   const allDisabled = !connected || !enabled;
 
   const trigger = (item: Item) => {
     if (allDisabled) return;
     setStatus(`Triggered: ${item.label}`);
-    // TODO: call /api/trigger here
+    // TODO: call your backend / Streamer.bot here
   };
 
-  const barCls =
-    theme === "botgoid"
-      ? "bg-botgoid-500/90 text-black"
-      : "bg-toxic-500/90 text-black";
-
-  const outlineSwap = theme === "botgoid" ? "border-botgoid-500 text-botgoid-100 hover:bg-botgoid-500/10"
-                                          : "border-toxic-500 text-toxic-200 hover:bg-toxic-500/10";
-
-  // ---------- Login card ----------
+  // Login card (simple)
   if (!authed) {
     return (
-      <div className="panel-card p-8 sm:p-10">
-        <h1 className={`text-4xl sm:text-5xl font-extrabold text-center mb-8 ${theme === "botgoid" ? "text-botgoid-500" : "text-toxic-500 acid-glow"}`}>
+      <section className="rounded-2xl border-2 border-emerald-500/50 bg-neutral-800 shadow-2xl p-8 sm:p-10">
+        <h1 className="text-center text-4xl sm:text-5xl font-extrabold text-emerald-400 mb-8">
           Welcome to Isla Tóxica’s Clicker
         </h1>
         <p className="text-center text-gray-200 max-w-xl mx-auto mb-10">
           Experience real-time interaction. Log in to start using the clicker!
         </p>
         <div className="flex justify-center">
-          <ThingyButton variant="solid" size="xl" onClick={() => setAuthed(true)}>
-            Login with Twitch
-          </ThingyButton>
+          <Btn size="xl" onClick={() => setAuthed(true)}>Login with Twitch</Btn>
         </div>
-      </div>
+      </section>
     );
   }
 
-  // ---------- Main panel ----------
+  // Main panel
   return (
-    <section className="panel-card overflow-hidden">
+    <section className="rounded-2xl border-2 border-emerald-500/50 bg-neutral-800 shadow-2xl overflow-hidden">
       {/* Header bar */}
-      <div className={`${barCls} px-6 py-5`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold">The Isla Tóxica Clicker</h2>
-            <p className="text-black/80 font-medium">Connected as: AcidJurassic</p>
-          </div>
-
-          {/* Theme toggle */}
-          <div className="flex gap-2">
-            <button onClick={() => setTheme("toxic")} className="btn btn-lg btn-outline">
-              Toxic
-            </button>
-            <button
-              onClick={() => setTheme("botgoid")}
-              className={`btn btn-lg ${theme === "botgoid" ? "btn-solid" : "btn-outline"}`}
-            >
-              Botgoid
-            </button>
-          </div>
-        </div>
+      <div className="bg-emerald-600/90 text-black px-6 py-5">
+        <h2 className="text-2xl font-bold">The Isla Tóxica Clicker</h2>
+        <p className="text-black/80 font-medium">Connected as: AcidJurassic</p>
       </div>
 
       <div className="p-6 sm:p-8">
-        {/* Top row buttons (outline, pill) */}
+        {/* Top row “Thingy” buttons */}
         <div className="flex flex-wrap gap-4 mb-6">
           {TOP_BUTTONS.map((b) => (
-            <button
-              key={b.id}
-              onClick={() => trigger(b)}
-              disabled={allDisabled}
-              className={`btn btn-xl btn-pill border-2 ${outlineSwap} shadow-neonSoft`}
-            >
+            <Btn key={b.id} outline pill size="xl" disabled={allDisabled} onClick={() => trigger(b)}>
               {b.label}
-            </button>
+            </Btn>
           ))}
         </div>
 
-        {/* Welcome / content area */}
-        <div className="panel-inner border-2 border-white/5 p-6 sm:p-8 mb-6">
-          <h3 className={`text-3xl font-extrabold text-center mb-2 ${theme === "botgoid" ? "text-botgoid-500" : "text-toxic-500 acid-glow"}`}>
-            WELCOME!
-          </h3>
-          <div className={`${theme === "botgoid" ? "bg-botgoid-500/40" : "bg-toxic-500/40"} h-px w-24 mx-auto mb-5`} />
+        {/* Content card */}
+        <div className="rounded-xl border border-emerald-400/40 bg-neutral-900 p-6 sm:p-8 shadow-inner mb-6">
+          <h3 className="text-3xl font-extrabold text-emerald-400 text-center mb-3">WELCOME!</h3>
+          <div className="h-px w-24 bg-emerald-400/60 mx-auto mb-5" />
           <p className="text-center text-gray-200 max-w-2xl mx-auto">
-            Select a “Thingy” to interact. Buttons work only when{" "}
-            <span className="font-semibold">Connected</span> and{" "}
+            Select a “Thingy” to interact. Buttons work only when <span className="font-semibold">Connected</span> and{" "}
             <span className="font-semibold">Enabled</span>.
           </p>
 
-          {/* Inner action grid */}
+          {/* Larger inner buttons */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-6">
             {PANEL_BUTTONS.map((i) => (
-              <ThingyButton
-                key={i.id}
-                size="xl"
-                variant="solid"
-                disabled={allDisabled}
-                onClick={() => trigger(i)}
-              >
+              <Btn key={i.id} size="xl" disabled={allDisabled} onClick={() => trigger(i)}>
                 {i.label}
-              </ThingyButton>
+              </Btn>
             ))}
           </div>
         </div>
@@ -153,9 +118,8 @@ export default function Panel() {
         {/* Controls + status */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <ThingyButton
+            <Btn
               size="lg"
-              variant="solid"
               onClick={() => {
                 const next = !connected;
                 setConnected(next);
@@ -163,27 +127,18 @@ export default function Panel() {
               }}
             >
               {connected ? "Connected" : "Connect"}
-            </ThingyButton>
+            </Btn>
 
-            <ThingyButton
-              size="lg"
-              variant={enabled ? "solid" : "outline"}
-              onClick={() => setEnabled((e) => !e)}
-            >
+            <Btn size="lg" outline={!enabled} onClick={() => setEnabled((e) => !e)}>
               {enabled ? "Enabled" : "Enable"}
-            </ThingyButton>
+            </Btn>
           </div>
 
-          <div
-            className={`px-5 py-2 rounded-full font-semibold ${
-              connected ? "bg-green-600 text-white" : "bg-red-600 text-white"
-            }`}
-          >
+          <div className={`px-5 py-2 rounded-full font-semibold ${connected ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
             {connected ? "Online" : "Bot Offline"}
           </div>
         </div>
 
-        {/* Status line */}
         <div className="h-px bg-white/10 my-6" />
         <div className="text-sm text-gray-300">{status}</div>
       </div>
