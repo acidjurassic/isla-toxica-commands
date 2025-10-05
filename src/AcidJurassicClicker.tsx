@@ -4,6 +4,7 @@ type Thingy = { id: string; label: string; hint?: string };
 type Category = { key: string; name: string; icon: string; items: Thingy[] };
 
 const CATEGORIES: Category[] = [
+  // 1) AUDIO
   {
     key: "audio",
     name: "Audio Triggers",
@@ -13,8 +14,11 @@ const CATEGORIES: Category[] = [
       { id: "SEXY_SAX", label: "Sexy Sax" },
       { id: "HOW_RUDE", label: "How Rude!" },
       { id: "DUNDUN", label: "Dun Dun Duuun" },
+      { id: "CANTINA", label: "Cantina Band" },
+      { id: "RIMSHOT", label: "Joke Drum Hit" },
     ],
   },
+  // 2) COMBAT
   {
     key: "combat",
     name: "Combat Events",
@@ -22,15 +26,38 @@ const CATEGORIES: Category[] = [
     items: [
       { id: "THARGOID_ALERT", label: "Thargoid Alert" },
       { id: "SHIP_DESTROYED", label: "Ship Destroyed" },
+      { id: "METEOR_STRIKE", label: "Meteor Strike" },
+      { id: "WING_JOIN", label: "Wing Join" },
+      { id: "ALERT_RED", label: "Red Alert" },
+      { id: "NUKE", label: "Containment Breach" },
     ],
   },
+  // 3) GLOWSPIKE
   {
     key: "squad",
     name: "Glowspike Squad",
     icon: "🧬",
     items: [
       { id: "GLOW_ROAR", label: "Glow Roar" },
+      { id: "CONTAINMENT_UNLOCK", label: "Containment Unlock" },
       { id: "EGG_HATCH", label: "Egg Hatch" },
+      { id: "SQUAD_PING", label: "Squad Ping" },
+      { id: "EMOTE_STORM", label: "Emote Storm" },
+      { id: "HYPE", label: "Hype Surge" },
+    ],
+  },
+  // 4) UTILITY
+  {
+    key: "utility",
+    name: "Utility Tools",
+    icon: "🎮",
+    items: [
+      { id: "BINGO_NEW", label: "Bingo: New Card" },
+      { id: "RANDOMIZER", label: "Randomizer" },
+      { id: "CHAT_PING", label: "Chat Ping" },
+      { id: "CLEAR_OVERLAYS", label: "Clear Overlays" },
+      { id: "MUTE_SFX", label: "Mute SFX" },
+      { id: "UNMUTE_SFX", label: "Unmute SFX" },
     ],
   },
 ];
@@ -40,7 +67,13 @@ const randomSessionId = () =>
 
 export default function AcidJurassicClicker() {
   const [connected, setConnected] = useState(false);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({ audio: true });
+  // 👇 default ALL categories expanded so you can see the buttons
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    audio: true,
+    combat: true,
+    squad: true,
+    utility: true,
+  });
   const [sessionId] = useState(randomSessionId());
   const [status, setStatus] = useState("Bot Offline");
   const [selected, setSelected] = useState<string | null>(null);
@@ -62,7 +95,7 @@ export default function AcidJurassicClicker() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold acid-glow">☣ Isla Tóxica Commands</h1>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <label className="text-xs text-gray-300 flex items-center gap-1 select-none">
             <input
               type="checkbox"
@@ -76,14 +109,14 @@ export default function AcidJurassicClicker() {
           <button
             type="button"
             onClick={() => setConnected((c) => !c)}
-            className="appearance-none bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-md text-sm border border-emerald-500/40 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition button-glow"
+            className="appearance-none bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-md text-sm border border-emerald-500/40 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
           >
             {connected ? "Disconnect" : "Connect"}
           </button>
         </div>
       </div>
 
-      {/* Status (debug-gated) */}
+      {/* Status (hidden unless Debug on) */}
       {showDebug && (
         <div className="mb-4 text-sm text-gray-300 space-y-1">
           <div>Session ID: <span className="font-mono">{sessionId}</span></div>
@@ -118,7 +151,7 @@ export default function AcidJurassicClicker() {
                       type="button"
                       key={item.id}
                       onClick={() => handleClick(item.label)}
-                      className="appearance-none bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded-md text-sm border border-emerald-500/40 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition button-glow"
+                      className="appearance-none bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded-md text-sm border border-emerald-500/40 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition"
                     >
                       {item.label}
                     </button>
