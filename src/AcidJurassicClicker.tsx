@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
-// ---- Mock data per Thingy (each tab gets its own buttons) ----
+// ---- Types ----
 type Item = { id: string; label: string };
 type ThingyKey = "BINGO" | "SOUND" | "DRIVEBY" | "TRIVIA";
 
+// ---- Thingy labels + per-thingy buttons ----
 const THINGY_LABEL: Record<ThingyKey, string> = {
   BINGO: "Bingo Thingy",
   SOUND: "Sound Thingy",
@@ -37,24 +38,25 @@ const THINGY_BUTTONS: Record<ThingyKey, Item[]> = {
   ],
 };
 
+// ---- Twitch OAuth (implicit) ----
 const TWITCH_AUTHORIZE = "https://id.twitch.tv/oauth2/authorize";
-const TWITCH_VALIDATE  = "https://id.twitch.tv/oauth2/validate";
+const TWITCH_VALIDATE = "https://id.twitch.tv/oauth2/validate";
 
 export default function AcidJurassicClicker() {
-  // ---- Auth (Twitch implicit flow) ----
+  // Auth
   const [authed, setAuthed] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
 
-  // ---- Panel gating ----
+  // Panel gating
   const [connected, setConnected] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [status, setStatus] = useState("Bot Offline");
 
-  // ---- Tabs ----
-  const [active, setActive] = useState<ThingyKey | null>(null); // null = welcome
+  // Tabs: null = Welcome
+  const [active, setActive] = useState<ThingyKey | null>(null);
 
-  const buttonsDisabled = useMemo(
+  // Action buttons require: authed + connected + enabled
+  const actionsDisabled = useMemo(
     () => !authed || !connected || !enabled,
     [authed, connected, enabled]
   );
@@ -63,69 +65,66 @@ export default function AcidJurassicClicker() {
     setStatus(connected ? "Bot Online" : "Bot Offline");
   }, [connected]);
 
-  // Parse token from hash or localStorage, then validate with Twitch
+  // Parse token from hash/localStorage, validate with Twitch
   useEffect(() => {
-    async function validateAndStore(tok: string) {
+    async function validate(tok: string) {
       try {
-        const res = await fetch(TWITCH_VALIDATE, {
+        const r = await fetch(TWITCH_VALIDATE, {
           headers: { Authorization: `OAuth ${tok}` },
         });
-        if (!res.ok) throw new Error("validate failed");
-        const data = await res.json();
+        if (!r.ok) throw new Error("bad token");
+        const data = await r.json();
         setUsername(data.login ?? null);
         setAuthed(true);
-        setToken(tok);
         localStorage.setItem("twitch_token", tok);
         if (location.hash) history.replaceState(null, "", location.pathname + location.search);
       } catch {
         localStorage.removeItem("twitch_token");
         setAuthed(false);
         setUsername(null);
-        setToken(null);
       }
     }
 
     if (location.hash.includes("access_token=")) {
-      const params = new URLSearchParams(location.hash.slice(1));
-      const tok = params.get("access_token");
-      if (tok) validateAndStore(tok);
+      const q = new URLSearchParams(location.hash.slice(1));
+      const tok = q.get("access_token");
+      if (tok) validate(tok);
       return;
     }
     const existing = localStorage.getItem("twitch_token");
-    if (existing) validateAndStore(existing);
+    if (existing) validate(existing);
   }, []);
 
-  function handleLogin() {
+  function loginWithTwitch() {
     const clientId = import.meta.env.VITE_TWITCH_CLIENT_ID;
     if (!clientId) {
       alert("Missing VITE_TWITCH_CLIENT_ID in Vercel env vars.");
       return;
     }
-    const url = new URL(TWITCH_AUTHORIZE);
-    url.searchParams.set("client_id", clientId);
-    url.searchParams.set("redirect_uri", window.location.origin);
-    url.searchParams.set("response_type", "token");
-    url.searchParams.set("scope", "");
-    window.location.href = url.toString();
+    const u = new URL(TWITCH_AUTHORIZE);
+    u.searchParams.set("client_id", clientId);
+    u.searchParams.set("redirect_uri", window.location.origin);
+    u.searchParams.set("response_type", "token");
+    u.searchParams.set("scope", "");
+    window.location.href = u.toString();
   }
 
-  function handleLogout() {
+  function logout() {
     localStorage.removeItem("twitch_token");
     setAuthed(false);
     setUsername(null);
-    setToken(null);
     setActive(null);
   }
 
   function trigger(item: Item) {
-    if (buttonsDisabled) return;
+    if (actionsDisabled) return;
     setStatus(`Triggered: ${item.label}`);
-    // TODO: send to your backend / Streamer.bot here (include token if needed)
+    // TODO: POST to /api/trigger with item.id
   }
 
-  // ----------------- UI -----------------
+  // ---------- UI ----------
 
-  // 1) STEP: Login
+  // STEP 1: Login
   if (!authed) {
     return (
       <section className="rounded-2xl border border-emerald-500/60 bg-neutral-900/90 shadow-[0_0_25px_rgba(0,255,153,0.25)] p-8 text-center max-w-xl mx-auto">
@@ -136,7 +135,7 @@ export default function AcidJurassicClicker() {
           Log in with Twitch to continue. We don’t store personal data — Twitch only confirms your identity.
         </p>
         <button
-          onClick={handleLogin}
+          onClick={loginWithTwitch}
           className="inline-flex items-center justify-center rounded-xl bg-emerald-600 text-black font-semibold py-3 px-6 hover:bg-emerald-500 transition"
         >
           Login with Twitch
@@ -145,7 +144,7 @@ export default function AcidJurassicClicker() {
     );
   }
 
-  // 2) STEP: Tabs + content panel
+  // STEP 2: Tabs then content
   return (
     <section className="rounded-2xl border border-emerald-500/60 bg-neutral-900/90 shadow-[0_0_25px_rgba(0,255,153,0.25)] overflow-hidden max-w-3xl mx-auto">
       {/* Header */}
@@ -156,7 +155,7 @@ export default function AcidJurassicClicker() {
             <p className="text-black/80 font-medium">Connected as: {username ?? "…"}</p>
           </div>
           <button
-            onClick={handleLogout}
+            onClick={logout}
             className="rounded-full bg-black/10 border border-black/20 px-4 py-1.5 font-semibold hover:bg-black/20"
           >
             Log out
@@ -165,7 +164,7 @@ export default function AcidJurassicClicker() {
       </div>
 
       <div className="p-6 sm:p-8">
-        {/* Tabs (top thingies) */}
+        {/* Tabs — always clickable after login */}
         <div className="flex flex-wrap gap-4 mb-6">
           {(Object.keys(THINGY_LABEL) as ThingyKey[]).map((key) => {
             const isActive = active === key;
@@ -173,14 +172,10 @@ export default function AcidJurassicClicker() {
               <button
                 key={key}
                 onClick={() => setActive(key)}
-                disabled={buttonsDisabled}
-                className={`rounded-full px-5 py-2 text-lg font-semibold transition
-                  border-2 ${
-                    isActive
-                      ? "bg-emerald-500 text-black border-emerald-400 shadow-[0_0_12px_rgba(0,255,153,.6)]"
-                      : "bg-transparent text-emerald-300 border-emerald-400 hover:bg-emerald-500/15"
-                  }
-                  ${buttonsDisabled ? "opacity-40 cursor-not-allowed" : ""}`}
+                className={`rounded-full px-5 py-2 text-lg font-semibold transition border-2
+                  ${isActive
+                    ? "bg-emerald-500 text-black border-emerald-400 shadow-[0_0_12px_rgba(0,255,153,.6)]"
+                    : "bg-transparent text-emerald-300 border-emerald-400 hover:bg-emerald-500/15"}`}
               >
                 {THINGY_LABEL[key]}
               </button>
@@ -191,16 +186,16 @@ export default function AcidJurassicClicker() {
         {/* Content area */}
         <div className="rounded-xl border border-emerald-500/40 bg-neutral-800/70 p-6 sm:p-8 shadow-inner mb-6">
           {!active ? (
-            // Step 2a: prompt user to pick a tab
             <div className="text-center">
-              <h3 className="text-2xl font-extrabold text-emerald-400 mb-3">WELCOME!</h3>
+              <h3 className="text-2xl font-extrabold text-emerald-400 mb-3">
+                WELCOME!
+              </h3>
               <p className="text-gray-300">
-                Select a Thingy above to open its controls. Buttons work only when{" "}
+                Pick a Thingy above to open its controls. Actions work only when{" "}
                 <strong>Connected</strong> and <strong>Enabled</strong>.
               </p>
             </div>
           ) : (
-            // Step 2b: show selected tab’s actions
             <>
               <h3 className="text-xl font-bold text-emerald-400 mb-4 text-center">
                 {THINGY_LABEL[active]}
@@ -210,7 +205,7 @@ export default function AcidJurassicClicker() {
                   <button
                     key={i.id}
                     onClick={() => trigger(i)}
-                    disabled={buttonsDisabled}
+                    disabled={actionsDisabled}
                     className="bg-emerald-600 text-black font-semibold rounded-xl py-3
                                hover:bg-emerald-500 shadow-[0_2px_6px_rgba(0,0,0,.4)]
                                hover:shadow-[0_0_12px_rgba(0,255,153,.6)]
@@ -235,14 +230,17 @@ export default function AcidJurassicClicker() {
                 setStatus(next ? "Bot Online" : "Bot Offline");
               }}
               className={`px-6 py-2 rounded-full font-semibold transition
-                          ${connected ? "bg-emerald-500 text-black hover:bg-emerald-400" : "bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
+                ${connected ? "bg-emerald-500 text-black hover:bg-emerald-400"
+                            : "bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
             >
               {connected ? "Connected" : "Connect"}
             </button>
+
             <button
               onClick={() => setEnabled((e) => !e)}
               className={`px-6 py-2 rounded-full font-semibold transition
-                          ${enabled ? "bg-emerald-500 text-black hover:bg-emerald-400" : "bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
+                ${enabled ? "bg-emerald-500 text-black hover:bg-emerald-400"
+                          : "bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
             >
               {enabled ? "Enabled" : "Enable"}
             </button>
