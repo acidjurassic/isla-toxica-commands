@@ -63,5 +63,200 @@ export default function AcidJurassicClicker() {
     setStatus(connected ? "Bot Online" : "Bot Offline");
   }, [connected]);
 
-  // Parse token from hash or localStorage, then vali
+  // Parse token from hash or localStorage, then validate with Twitch
+  useEffect(() => {
+    async function validateAndStore(tok: string) {
+      try {
+        const res = await fetch(TWITCH_VALIDATE, {
+          headers: { Authorization: `OAuth ${tok}` },
+        });
+        if (!res.ok) throw new Error("validate failed");
+        const data = await res.json();
+        setUsername(data.login ?? null);
+        setAuthed(true);
+        setToken(tok);
+        localStorage.setItem("twitch_token", tok);
+        if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+      } catch {
+        localStorage.removeItem("twitch_token");
+        setAuthed(false);
+        setUsername(null);
+        setToken(null);
+      }
+    }
+
+    if (location.hash.includes("access_token=")) {
+      const params = new URLSearchParams(location.hash.slice(1));
+      const tok = params.get("access_token");
+      if (tok) validateAndStore(tok);
+      return;
+    }
+    const existing = localStorage.getItem("twitch_token");
+    if (existing) validateAndStore(existing);
+  }, []);
+
+  function handleLogin() {
+    const clientId = import.meta.env.VITE_TWITCH_CLIENT_ID;
+    if (!clientId) {
+      alert("Missing VITE_TWITCH_CLIENT_ID in Vercel env vars.");
+      return;
+    }
+    const url = new URL(TWITCH_AUTHORIZE);
+    url.searchParams.set("client_id", clientId);
+    url.searchParams.set("redirect_uri", window.location.origin);
+    url.searchParams.set("response_type", "token");
+    url.searchParams.set("scope", "");
+    window.location.href = url.toString();
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("twitch_token");
+    setAuthed(false);
+    setUsername(null);
+    setToken(null);
+    setActive(null);
+  }
+
+  function trigger(item: Item) {
+    if (buttonsDisabled) return;
+    setStatus(`Triggered: ${item.label}`);
+    // TODO: send to your backend / Streamer.bot here (include token if needed)
+  }
+
+  // ----------------- UI -----------------
+
+  // 1) STEP: Login
+  if (!authed) {
+    return (
+      <section className="rounded-2xl border border-emerald-500/60 bg-neutral-900/90 shadow-[0_0_25px_rgba(0,255,153,0.25)] p-8 text-center max-w-xl mx-auto">
+        <h1 className="text-3xl font-extrabold text-emerald-400 drop-shadow-[0_0_12px_rgba(0,255,153,.5)] mb-4">
+          WELCOME!
+        </h1>
+        <p className="text-gray-300 max-w-xl mx-auto mb-8">
+          Log in with Twitch to continue. We don’t store personal data — Twitch only confirms your identity.
+        </p>
+        <button
+          onClick={handleLogin}
+          className="inline-flex items-center justify-center rounded-xl bg-emerald-600 text-black font-semibold py-3 px-6 hover:bg-emerald-500 transition"
+        >
+          Login with Twitch
+        </button>
+      </section>
+    );
+  }
+
+  // 2) STEP: Tabs + content panel
+  return (
+    <section className="rounded-2xl border border-emerald-500/60 bg-neutral-900/90 shadow-[0_0_25px_rgba(0,255,153,0.25)] overflow-hidden max-w-3xl mx-auto">
+      {/* Header */}
+      <div className="bg-emerald-600/90 text-black px-6 py-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl sm:text-2xl font-bold">The Isla Tóxica Clicker</h2>
+            <p className="text-black/80 font-medium">Connected as: {username ?? "…"}</p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="rounded-full bg-black/10 border border-black/20 px-4 py-1.5 font-semibold hover:bg-black/20"
+          >
+            Log out
+          </button>
+        </div>
+      </div>
+
+      <div className="p-6 sm:p-8">
+        {/* Tabs (top thingies) */}
+        <div className="flex flex-wrap gap-4 mb-6">
+          {(Object.keys(THINGY_LABEL) as ThingyKey[]).map((key) => {
+            const isActive = active === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setActive(key)}
+                disabled={buttonsDisabled}
+                className={`rounded-full px-5 py-2 text-lg font-semibold transition
+                  border-2 ${
+                    isActive
+                      ? "bg-emerald-500 text-black border-emerald-400 shadow-[0_0_12px_rgba(0,255,153,.6)]"
+                      : "bg-transparent text-emerald-300 border-emerald-400 hover:bg-emerald-500/15"
+                  }
+                  ${buttonsDisabled ? "opacity-40 cursor-not-allowed" : ""}`}
+              >
+                {THINGY_LABEL[key]}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Content area */}
+        <div className="rounded-xl border border-emerald-500/40 bg-neutral-800/70 p-6 sm:p-8 shadow-inner mb-6">
+          {!active ? (
+            // Step 2a: prompt user to pick a tab
+            <div className="text-center">
+              <h3 className="text-2xl font-extrabold text-emerald-400 mb-3">WELCOME!</h3>
+              <p className="text-gray-300">
+                Select a Thingy above to open its controls. Buttons work only when{" "}
+                <strong>Connected</strong> and <strong>Enabled</strong>.
+              </p>
+            </div>
+          ) : (
+            // Step 2b: show selected tab’s actions
+            <>
+              <h3 className="text-xl font-bold text-emerald-400 mb-4 text-center">
+                {THINGY_LABEL[active]}
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {THINGY_BUTTONS[active].map((i) => (
+                  <button
+                    key={i.id}
+                    onClick={() => trigger(i)}
+                    disabled={buttonsDisabled}
+                    className="bg-emerald-600 text-black font-semibold rounded-xl py-3
+                               hover:bg-emerald-500 shadow-[0_2px_6px_rgba(0,0,0,.4)]
+                               hover:shadow-[0_0_12px_rgba(0,255,153,.6)]
+                               transition-all duration-200
+                               disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {i.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Controls + Status */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                const next = !connected;
+                setConnected(next);
+                setStatus(next ? "Bot Online" : "Bot Offline");
+              }}
+              className={`px-6 py-2 rounded-full font-semibold transition
+                          ${connected ? "bg-emerald-500 text-black hover:bg-emerald-400" : "bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
+            >
+              {connected ? "Connected" : "Connect"}
+            </button>
+            <button
+              onClick={() => setEnabled((e) => !e)}
+              className={`px-6 py-2 rounded-full font-semibold transition
+                          ${enabled ? "bg-emerald-500 text-black hover:bg-emerald-400" : "bg-gray-700 text-gray-200 hover:bg-gray-600"}`}
+            >
+              {enabled ? "Enabled" : "Enable"}
+            </button>
+          </div>
+
+          <div className={`px-5 py-2 rounded-full font-semibold ${connected ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+            {connected ? "Online" : "Bot Offline"}
+          </div>
+        </div>
+
+        <div className="h-px bg-white/10 my-6" />
+        <div className="text-sm text-gray-300">{status}</div>
+      </div>
+    </section>
+  );
+}
 
