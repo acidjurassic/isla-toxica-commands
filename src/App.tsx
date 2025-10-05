@@ -3,9 +3,8 @@ import AcidJurassicClicker from "./AcidJurassicClicker"; // or "./components/Aci
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 flex items-start justify-center">
-      {/* top spacing so header isn’t glued to the top */}
-      <main className="w-full max-w-4xl px-4 sm:px-6 lg:px-8 pt-10 pb-16">
+    <div className="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center">
+      <main className="w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-10">
         <AcidJurassicClicker />
       </main>
     </div>
