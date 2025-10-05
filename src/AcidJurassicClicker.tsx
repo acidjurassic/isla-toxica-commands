@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
+console.log("Twitch Client ID:", import.meta.env.VITE_TWITCH_CLIENT_ID);
+
+
 // ---- Types ----
 type Item = { id: string; label: string };
 type ThingyKey = "BINGO" | "SOUND" | "DRIVEBY" | "TRIVIA";
