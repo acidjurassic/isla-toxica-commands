@@ -111,14 +111,42 @@ export default function AcidJurassicClicker() {
     setActive(null);
   }
 
+  // ⬇️ NEW: call your backend + show clear status messages
   async function trigger(item: Item) {
-    if (actionsDisabled || busy) return;
+    if (actionsDisabled) {
+      setStatus(!authed ? "Login required" : "Safe Mode: controls disabled");
+      return;
+    }
+    if (busy) return;
+
     setBusy(true);
     try {
-      setStatus(`Triggered: ${item.label}`);
-      // TODO: hook to Streamer.bot or backend
+      const tok = localStorage.getItem("twitch_token") || "";
+      const res = await fetch("/api/trigger", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `OAuth ${tok}`, // backend validates with Twitch
+        },
+        body: JSON.stringify({ actionId: item.id }),
+      });
+
+      if (!res.ok) {
+        if (res.status === 401) setStatus("Blocked: login expired — please login again");
+        else if (res.status === 429) setStatus("Blocked: Cooldown (anti-spam)");
+        else {
+          const msg = await res.text().catch(() => "");
+          setStatus(`Blocked: ${msg || `HTTP ${res.status}`}`);
+        }
+        return;
+      }
+
+      const { user } = await res.json().catch(() => ({ user: "viewer" }));
+      setStatus(`Triggered: ${item.label} (by ${user})`);
+    } catch {
+      setStatus("Network error");
     } finally {
-      setTimeout(() => setBusy(false), 300);
+      setTimeout(() => setBusy(false), 300); // tiny debounce
     }
   }
 
