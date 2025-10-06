@@ -1,6 +1,6 @@
-/* Pure CSS background + text color */
+/* Subtle black + acid glow */
 body {
-  color: #e5e7eb; /* Tailwind's gray-200 */
+  color: #e5e7eb;
   background-color: #000;
   background-image:
     radial-gradient(circle at 30% -20%, rgba(0,255,153,0.12), transparent 60%),
