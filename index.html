@@ -1,106 +1,22 @@
+You said:
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Isla Tóxica Commands</title>
-    <style>
-      body{font-family:Arial,Helvetica,sans-serif;background:#0b0b0b;color:#eee;display:flex;flex-direction:column;align-items:center;gap:1rem;padding:2rem;min-height:100vh}
-      button{padding:.6rem 1rem;font-size:1rem;border-radius:.5rem;border:0;cursor:pointer}
-      .btns{display:flex;gap:.6rem}
-      #status{opacity:.9}
-    </style>
+ 
+
+
   </head>
-  <body class="bg-gray-900 text-gray-100 flex items-center justify-center min-h-screen">
-    <div id="root">
-      <h2>Viewer Clicker</h2>
-      <div id="status">connecting…</div>
-      <div class="btns">
-        <button data-action="alert" id="btn-alert">Alert</button>
-        <button data-action="cheer"  id="btn-cheer">Cheer</button>
-        <button data-action="dance"  id="btn-dance">Dance</button>
-      </div>
-    </div>
+ <body class="bg-gray-900 text-gray-100 flex items-center justify-center min-h-screen">
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+   <script>
+  window._VITE_TWITCH_CLIENT_ID = "afdg7gv2b2d8dstbsp45f0gmsjsxx4";
+</script>
 
-    <script>
-      window._VITE_TWITCH_CLIENT_ID = "afdg7gv2b2d8dstbsp45f0gmsjsxx4";
-    </script>
+</body>
 
-    <script>
-      // CONFIG — adjust if you moved gist
-      const GIST_RAW = "https://gist.githubusercontent.com/acidjurassic/4492e7b11e49293078f5e9ad25658d2f/raw/current.json";
-      const SHARED_SECRET = ""; // OPTIONAL, set if you use a secret in Streamer.bot checks
-
-      let socket = null;
-      let currentWss = null;
-
-      async function resolveWss(){
-        try{
-          const r = await fetch(GIST_RAW + "?ts=" + Date.now(), {cache: "no-store"});
-          const j = await r.json();
-          if(!j || !j.url) return null;
-          return j.url.replace(/^http:/i,'wss:').replace(/^https:/i,'wss:') + "/ws";
-        }catch(e){
-          console.warn("resolveWss failed", e);
-          return null;
-        }
-      }
-
-      async function connect(){
-        const wss = await resolveWss();
-        if(!wss){ document.getElementById('status').textContent = "no tunnel url"; return; }
-        if(socket && socket.url === wss && socket.readyState === WebSocket.OPEN) {
-          document.getElementById('status').textContent = "connected";
-          return;
-        }
-        if(socket) { socket.close(); socket = null; }
-
-        document.getElementById('status').textContent = "connecting to " + wss;
-        try{
-          socket = new WebSocket(wss);
-          socket.onopen = () => document.getElementById('status').textContent = "connected to " + wss;
-          socket.onclose = (ev) => document.getElementById('status').textContent = "closed (code " + ev.code + ")";
-          socket.onerror = () => document.getElementById('status').textContent = "error";
-          socket.onmessage = (ev) => console.log("from server:", ev.data);
-          currentWss = wss;
-        }catch(err){
-          console.error("connect error", err);
-          document.getElementById('status').textContent = "connect failed";
-        }
-      }
-
-      async function sendAction(actionId, extra = {}){
-        if(!socket || socket.readyState !== WebSocket.OPEN){
-          document.getElementById('status').textContent = "not connected";
-          await connect();
-          if(!socket || socket.readyState !== WebSocket.OPEN) return;
-        }
-        const payload = {
-          type: "clicker",
-          action: actionId,
-          user: null,
-          secret: SHARED_SECRET,
-          meta: extra,
-          ts: Date.now()
-        };
-        socket.send(JSON.stringify(payload));
-        document.getElementById('status').textContent = "sent: " + actionId;
-      }
-
-      document.querySelectorAll('button[data-action]').forEach(btn=>{
-        btn.addEventListener('click', ()=> {
-          const a = btn.getAttribute('data-action');
-          sendAction(a, {btnId: btn.id});
-        });
-      });
-
-      connect();
-      setInterval(async ()=> {
-        const newWss = await resolveWss();
-        if(newWss && newWss !== currentWss) connect();
-      }, 30000);
-    </script>
-  </body>
 </html>
-
 
