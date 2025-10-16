@@ -47,6 +47,27 @@ const GIST_RAW =
 const WS_SECRET =
   (import.meta as any).env?.VITE_WS_SECRET || "rAnD0m-ALPHA-1234567890";
 
+// ===== Helpers =====
+function toWs(url: string) {
+  const u = (url || "").trim();
+  if (!u) return "";
+
+  if (u.startsWith("https://")) return u.replace(/^https:\/\//, "wss://");
+  if (u.startsWith("http://")) return u.replace(/^http:\/\//, "ws://");
+  if (/^wss?:\/\//i.test(u)) return u;
+
+  // bare host => choose scheme based on page scheme
+  const secure = location.protocol === "https:";
+  return `${secure ? "wss" : "ws"}://${u}`;
+}
+
+function canUseLocalFallback() {
+  return /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+}
+
+// Streamer.bot WS port you exposed via cloudflared (commonly 7474).
+const SB_WS_PORT = Number((import.meta as any).env?.VITE_SB_WS_PORT ?? 7474);
+
 export default function AcidJurassicClicker() {
   // Auth
   const [authed, setAuthed] = useState(false);
@@ -63,7 +84,7 @@ export default function AcidJurassicClicker() {
   const wsRef = useRef<WebSocket | null>(null);
   const [wsReady, setWsReady] = useState(false);
 
-  // Token validation effect (unchanged)
+  // ---------- Token validation ----------
   useEffect(() => {
     async function validate(tok: string) {
       try {
@@ -96,11 +117,11 @@ export default function AcidJurassicClicker() {
   useEffect(() => {
     if (!authed) setStatus("Bot Offline");
     else if (!armed) setStatus("Safe Mode");
-    else setStatus("Online");
-  }, [authed, armed]);
+    else setStatus(wsReady ? "Online" : "Connecting…");
+  }, [authed, armed, wsReady]);
 
   function loginWithTwitch() {
-    const clientId = import.meta.env.VITE_TWITCH_CLIENT_ID;
+    const clientId = (import.meta as any).env?.VITE_TWITCH_CLIENT_ID;
     if (!clientId) {
       alert("Missing VITE_TWITCH_CLIENT_ID in Vercel env vars.");
       return;
@@ -126,14 +147,14 @@ export default function AcidJurassicClicker() {
     let mounted = true;
     let backoff = 1000;
     let reconnectTimer: number | null = null;
-    const pollInterval = 30_000; // 30s
+    const pollInterval = 25_000 + Math.floor(Math.random() * 10_000); // jitter
+
     let lastRelay = "";
 
     async function fetchRelay(): Promise<string> {
-      // try gist fetch (no-cache)
       try {
         const r = await fetch(GIST_RAW, { cache: "no-store" });
-        if (!r.ok) throw new Error("gist fetch failed");
+        if (!r.ok) throw new Error(`gist fetch failed: ${r.status}`);
         const j = await r.json();
         return (j?.url ?? "").trim();
       } catch (e) {
@@ -142,26 +163,60 @@ export default function AcidJurassicClicker() {
       }
     }
 
+    function closeWs() {
+      try {
+        wsRef.current?.close();
+      } catch {}
+      wsRef.current = null;
+      setWsReady(false);
+    }
+
     async function connectLoop() {
       if (!mounted) return;
+
+      // 1) get latest relay host/url from Gist
       const relay = await fetchRelay();
       if (!mounted) return;
 
-      // if unchanged and socket is open, nothing to do
-      if (relay && relay === lastRelay && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      if (relay) lastRelay = relay;
+
+      // 2) Build a WS URL
+      // Allow either full URL (https://trycloudflare) or bare host
+      let wsUrl = "";
+
+      if (lastRelay) {
+        const tmp = toWs(lastRelay);
+        // If it's a bare host, add the SB port (cloudflared handles http->ws upgrade)
+        if (/^[a-z0-9.-]+\.trycloudflare\.com$/i.test(lastRelay)) {
+          wsUrl = toWs(`${lastRelay}:${SB_WS_PORT}`);
+        } else {
+          wsUrl = tmp;
+        }
+      }
+
+      // 3) Local dev fallback ONLY when running locally
+      if (!wsUrl && canUseLocalFallback()) {
+        wsUrl = `ws://127.0.0.1:${SB_WS_PORT}/`;
+      }
+
+      // 4) If still nothing, skip this cycle (don’t try to open ws:// on HTTPS)
+      if (!wsUrl) {
+        console.debug("No relay URL yet; skipping WS connect this cycle.");
+        scheduleReconnect();
         return;
       }
 
-      lastRelay = relay || lastRelay;
+      // If page is HTTPS, require wss://
+      if (location.protocol === "https:" && !wsUrl.startsWith("wss://")) {
+        // try to coerce: if we have http(s) or ws scheme, replace with wss
+        wsUrl = wsUrl.replace(/^ws:\/\//i, "wss://").replace(/^http:\/\//i, "wss://").replace(/^https:\/\//i, "wss://");
+      }
 
-      // normalize scheme
-      let wsUrl = lastRelay;
-      if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace(/^https:/, "wss");
-      if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace(/^http:/, "ws");
-      if (!wsUrl) wsUrl = "ws://127.0.0.1:18080/"; // local dev fallback
+      console.debug("WS connect →", wsUrl);
 
+      // 5) Connect
       try {
-        try { wsRef.current?.close(); } catch {}
+        closeWs();
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
@@ -172,33 +227,36 @@ export default function AcidJurassicClicker() {
           console.debug("WS open", wsUrl);
         };
 
-        // use the event object (ev) so TypeScript doesn't complain
         ws.onmessage = (ev: MessageEvent) => {
-          const raw = ev.data;
           try {
-            const parsed = JSON.parse(raw as string);
+            const parsed = JSON.parse(String(ev.data));
             console.debug("WS msg", parsed);
           } catch {
-            console.debug("WS msg raw", raw);
+            console.debug("WS msg raw", ev.data);
           }
         };
 
         ws.onclose = () => {
           if (!mounted) return;
           setWsReady(false);
-          console.debug("WS closed, will reconnect in", backoff);
-          reconnectTimer = window.setTimeout(connectLoop, backoff);
+          console.debug("WS closed, will reconnect in", backoff, "ms");
+          scheduleReconnect();
           backoff = Math.min(backoff * 2, 30_000);
         };
 
         ws.onerror = (err) => {
-          // use variable so TS doesn't mark it unused
           console.debug("WS error", err);
         };
       } catch (err) {
         console.warn("WS connect failed, scheduling retry", err);
-        reconnectTimer = window.setTimeout(connectLoop, backoff);
+        scheduleReconnect();
         backoff = Math.min(backoff * 2, 30_000);
+      }
+
+      function scheduleReconnect() {
+        if (!mounted) return;
+        if (reconnectTimer) window.clearTimeout(reconnectTimer);
+        reconnectTimer = window.setTimeout(connectLoop, backoff);
       }
     }
 
@@ -210,16 +268,18 @@ export default function AcidJurassicClicker() {
       mounted = false;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       clearInterval(pollId);
-      try { wsRef.current?.close(); } catch {}
+      try {
+        wsRef.current?.close();
+      } catch {}
       wsRef.current = null;
       setWsReady(false);
     };
   }, []);
 
-  // helper: send via WS if possible
-  function trySendWs(payload: any) {
+  // ---------- Send helper ----------
+  function trySendWs(payload: unknown) {
     try {
-      if (wsRef.current && wsReady && wsRef.current.readyState === WebSocket.OPEN) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify(payload));
         console.debug("Sent via WS:", payload);
         return true;
@@ -230,7 +290,7 @@ export default function AcidJurassicClicker() {
     return false;
   }
 
-  // trigger: prefer WS, fallback to API POST
+  // ---------- Trigger ----------
   async function trigger(item: Item) {
     if (actionsDisabled) {
       setStatus(!authed ? "Login required" : "Safe Mode: controls disabled");
@@ -367,7 +427,9 @@ export default function AcidJurassicClicker() {
             {armed ? "Disable Controls" : "Enable Controls"}
           </button>
 
-          <div className={`px-5 py-2 rounded-full font-semibold ${armed ? "bg-green-600" : "bg-red-600"} text-white`}>{status}</div>
+          <div className={`px-5 py-2 rounded-full font-semibold ${armed ? (wsReady ? "bg-green-600" : "bg-yellow-600") : "bg-red-600"} text-white`}>
+            {status}
+          </div>
         </div>
 
         <div className="h-px bg-white/10 my-6" />
@@ -376,5 +438,6 @@ export default function AcidJurassicClicker() {
     </section>
   );
 }
+
 
 
