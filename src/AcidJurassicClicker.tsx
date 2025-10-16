@@ -39,7 +39,7 @@ const THINGY_BUTTONS: Record<ThingyKey, Item[]> = {
 const TWITCH_AUTHORIZE = "https://id.twitch.tv/oauth2/authorize";
 const TWITCH_VALIDATE = "https://id.twitch.tv/oauth2/validate";
 
-// raw gist URL for your current.json (no-cache fetch)
+// raw gist URL for your current.json (no-cache)
 const GIST_RAW =
   "https://gist.githubusercontent.com/acidjurassic/4492e7b11e49293078f5e9ad25658d2f/raw/current.json";
 
@@ -52,19 +52,18 @@ export default function AcidJurassicClicker() {
   const [authed, setAuthed] = useState(false);
   const [username, setUsername] = useState<string | null>(null);
 
-  // One toggle only: Enable/Disable Controls
+  // Controls
   const [armed, setArmed] = useState(false);
   const [status, setStatus] = useState("Bot Offline");
   const [active, setActive] = useState<ThingyKey | null>(null);
   const [busy, setBusy] = useState(false);
-
   const actionsDisabled = useMemo(() => !authed || !armed, [authed, armed]);
 
-  // ---- WebSocket state ----
+  // WebSocket
   const wsRef = useRef<WebSocket | null>(null);
   const [wsReady, setWsReady] = useState(false);
 
-  // Validate token
+  // Token validation effect (unchanged)
   useEffect(() => {
     async function validate(tok: string) {
       try {
@@ -76,8 +75,7 @@ export default function AcidJurassicClicker() {
         setUsername(data.login ?? null);
         setAuthed(true);
         localStorage.setItem("twitch_token", tok);
-        if (location.hash)
-          history.replaceState(null, "", location.pathname + location.search);
+        if (location.hash) history.replaceState(null, "", location.pathname + location.search);
       } catch {
         localStorage.removeItem("twitch_token");
         setAuthed(false);
@@ -132,6 +130,7 @@ export default function AcidJurassicClicker() {
     let lastRelay = "";
 
     async function fetchRelay(): Promise<string> {
+      // try gist fetch (no-cache)
       try {
         const r = await fetch(GIST_RAW, { cache: "no-store" });
         if (!r.ok) throw new Error("gist fetch failed");
@@ -148,13 +147,14 @@ export default function AcidJurassicClicker() {
       const relay = await fetchRelay();
       if (!mounted) return;
 
+      // if unchanged and socket is open, nothing to do
       if (relay && relay === lastRelay && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        // already connected to this relay
         return;
       }
 
       lastRelay = relay || lastRelay;
 
+      // normalize scheme
       let wsUrl = lastRelay;
       if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace(/^https:/, "wss");
       if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace(/^http:/, "ws");
@@ -171,27 +171,29 @@ export default function AcidJurassicClicker() {
           backoff = 1000;
           console.debug("WS open", wsUrl);
         };
-     // replace existing ws.onmessage = (ev) => { ... } with this:
-      ws.onmessage = (ev: MessageEvent) => {
+
+        // use the event object (ev) so TypeScript doesn't complain
+        ws.onmessage = (ev: MessageEvent) => {
           const raw = ev.data;
-            try {
-    // try parse JSON payload
+          try {
             const parsed = JSON.parse(raw as string);
-              console.debug("WS msg", parsed);
-              } catch {
-              // not JSON — print raw
-              console.debug("WS msg raw", raw);
-            }
+            console.debug("WS msg", parsed);
+          } catch {
+            console.debug("WS msg raw", raw);
+          }
         };
-        ws.onclose = (ev) => {
+
+        ws.onclose = () => {
           if (!mounted) return;
           setWsReady(false);
           console.debug("WS closed, will reconnect in", backoff);
           reconnectTimer = window.setTimeout(connectLoop, backoff);
           backoff = Math.min(backoff * 2, 30_000);
         };
-        ws.onerror = (e) => {
-          console.debug("WS error", e);
+
+        ws.onerror = (err) => {
+          // use variable so TS doesn't mark it unused
+          console.debug("WS error", err);
         };
       } catch (err) {
         console.warn("WS connect failed, scheduling retry", err);
@@ -200,6 +202,7 @@ export default function AcidJurassicClicker() {
       }
     }
 
+    // start
     connectLoop();
     const pollId = window.setInterval(() => connectLoop(), pollInterval);
 
@@ -235,6 +238,7 @@ export default function AcidJurassicClicker() {
     }
     if (busy) return;
     setBusy(true);
+
     try {
       const payload = {
         actionId: item.id,
@@ -244,11 +248,13 @@ export default function AcidJurassicClicker() {
         secret: WS_SECRET,
       };
 
+      // 1) try WS
       if (trySendWs(payload)) {
         setStatus(`Triggered: ${item.label} (via WS)`);
         return;
       }
 
+      // 2) fallback to serverless endpoint (keeps Twitch validation)
       const tok = localStorage.getItem("twitch_token") || "";
       const res = await fetch("/api/trigger", {
         method: "POST",
@@ -304,14 +310,9 @@ export default function AcidJurassicClicker() {
       <div className="bg-toxic-500/90 text-black px-6 py-5 flex items-center justify-between">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold">The Isla Tóxica Clicker</h2>
-          <p className="text-black/80 font-medium">
-            Connected as: {username ?? "…"}
-          </p>
+          <p className="text-black/80 font-medium">Connected as: {username ?? "…"}</p>
         </div>
-        <button
-          onClick={logout}
-          className="rounded-full bg-black/10 border border-black/20 px-4 py-1.5 font-semibold hover:bg-black/20"
-        >
+        <button onClick={logout} className="rounded-full bg-black/10 border border-black/20 px-4 py-1.5 font-semibold hover:bg-black/20">
           Log out
         </button>
       </div>
@@ -339,30 +340,19 @@ export default function AcidJurassicClicker() {
         <div className="rounded-xl border border-toxic-500/40 bg-neutral-800/70 p-6 sm:p-8 shadow-inner mb-6">
           {!active ? (
             <div className="text-center">
-              <h3 className="text-2xl font-extrabold text-toxic-400 mb-3">
-                WELCOME!
-              </h3>
-              <p className="text-gray-300">
-                Pick a Thingy above to open its controls. Buttons only work
-                when you’ve enabled controls.
-              </p>
+              <h3 className="text-2xl font-extrabold text-toxic-400 mb-3">WELCOME!</h3>
+              <p className="text-gray-300">Pick a Thingy above to open its controls. Buttons only work when you’ve enabled controls.</p>
             </div>
           ) : (
             <>
-              <h3 className="text-xl font-bold text-toxic-400 mb-4 text-center">
-                {THINGY_LABEL[active]}
-              </h3>
+              <h3 className="text-xl font-bold text-toxic-400 mb-4 text-center">{THINGY_LABEL[active]}</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {THINGY_BUTTONS[active].map((i) => (
                   <button
                     key={i.id}
                     onClick={() => trigger(i)}
                     disabled={actionsDisabled || busy}
-                    className="bg-toxic-500 text-black font-semibold rounded-xl py-3
-                               shadow-[0_0_10px_rgba(0,255,153,0.4)] 
-                               hover:shadow-[0_0_20px_rgba(0,255,153,0.8)]
-                               hover:bg-toxic-400 transition-all duration-300
-                               disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="bg-toxic-500 text-black font-semibold rounded-xl py-3 shadow-[0_0_10px_rgba(0,255,153,0.4)] hover:shadow-[0_0_20px_rgba(0,255,153,0.8)] hover:bg-toxic-400 transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {i.label}
                   </button>
@@ -373,24 +363,11 @@ export default function AcidJurassicClicker() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <button
-            onClick={() => setArmed((a) => !a)}
-            className={`px-6 py-2 rounded-full font-semibold transition ${
-              armed
-                ? "bg-toxic-500 text-black hover:bg-toxic-400 shadow-[0_0_25px_rgba(0,255,153,0.6)] animate-pulse"
-                : "bg-gray-700 text-gray-200 hover:bg-gray-600"
-            }`}
-          >
+          <button onClick={() => setArmed((a) => !a)} className={`px-6 py-2 rounded-full font-semibold transition ${armed ? "bg-toxic-500 text-black hover:bg-toxic-400 shadow-[0_0_25px_rgba(0,255,153,0.6)] animate-pulse" : "bg-gray-700 text-gray-200 hover:bg-gray-600"}`}>
             {armed ? "Disable Controls" : "Enable Controls"}
           </button>
 
-          <div
-            className={`px-5 py-2 rounded-full font-semibold ${
-              armed ? "bg-green-600" : "bg-red-600"
-            } text-white`}
-          >
-            {status}
-          </div>
+          <div className={`px-5 py-2 rounded-full font-semibold ${armed ? "bg-green-600" : "bg-red-600"} text-white`}>{status}</div>
         </div>
 
         <div className="h-px bg-white/10 my-6" />
@@ -399,4 +376,5 @@ export default function AcidJurassicClicker() {
     </section>
   );
 }
+
 
