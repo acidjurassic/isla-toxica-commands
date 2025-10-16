@@ -1,0 +1,141 @@
+import { useEffect, useRef, useState } from "react";
+
+const GIST_RAW =
+  "https://gist.githubusercontent.com/acidjurassic/4492e7b11e49293078f5e9ad25658d2f/raw/current.json";
+
+function toWs(u: string) {
+  const s = (u || "").trim();
+  if (!s) return "";
+  if (s.startsWith("https://")) return s.replace(/^https:\/\//, "wss://");
+  if (s.startsWith("http://"))  return s.replace(/^http:\/\//, "ws://");
+  if (/^wss?:\/\//i.test(s))    return s;
+  const secure = location.protocol === "https:";
+  return `${secure ? "wss" : "ws"}://${s}`;
+}
+
+export default function WsProbe() {
+  const wsRef = useRef<WebSocket | null>(null);
+  const [log, setLog] = useState<string[]>([]);
+  const [url, setUrl] = useState<string>("");
+  const [ready, setReady] = useState(false);
+
+  function push(...lines: string[]) {
+    setLog((L) => [...lines.map(l => `[${new Date().toLocaleTimeString()}] ${l}`), ...L].slice(0, 200));
+  }
+
+  useEffect(() => {
+    let mounted = true;
+    let backoff = 1000;
+    let timer: number | null = null;
+    let pinger: number | null = null;
+
+    async function getRelay(): Promise<string> {
+      try {
+        const r = await fetch(GIST_RAW, { cache: "no-store" });
+        if (!r.ok) throw new Error(String(r.status));
+        const j = await r.json();
+        return (j?.url ?? "").trim();
+      } catch (e) {
+        push(`fetch relay failed: ${String(e)}`);
+        return "";
+      }
+    }
+
+    function cleanup() {
+      try { wsRef.current?.close(); } catch {}
+      wsRef.current = null;
+      if (pinger) clearInterval(pinger);
+      setReady(false);
+    }
+
+    async function loop() {
+      if (!mounted) return;
+
+      const relay = await getRelay();
+      if (!mounted) return;
+
+      let wsUrl = relay ? toWs(relay) : "";
+
+      if (!wsUrl) {
+        push("no relay URL yet; retrying…");
+        schedule();
+        return;
+      }
+      if (location.protocol === "https:" && !wsUrl.startsWith("wss://")) {
+        wsUrl = wsUrl.replace(/^ws:\/\//i, "wss://").replace(/^http:\/\//i, "wss://");
+      }
+
+      setUrl(wsUrl);
+      push(`connecting → ${wsUrl}`);
+      cleanup();
+
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          if (!mounted) return;
+          setReady(true);
+          backoff = 1000;
+          push("open ✅");
+          pinger = window.setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "ping", t: Date.now() }));
+              push("sent ping");
+            }
+          }, 15000) as unknown as number;
+        };
+
+        ws.onmessage = (ev) => {
+          try {
+            push("msg:", JSON.stringify(JSON.parse(String(ev.data))));
+          } catch {
+            push("msg (raw): " + String(ev.data));
+          }
+        };
+
+        ws.onclose = (ev) => {
+          setReady(false);
+          push(`closed ❌ code=${ev.code} reason="${ev.reason}" clean=${ev.wasClean}`);
+          schedule();
+          backoff = Math.min(backoff * 2, 30000);
+        };
+
+        ws.onerror = (err) => {
+          push("error ⛔ " + (err instanceof Event ? "Event" : String(err)));
+        };
+      } catch (e) {
+        push("connect threw ⛔ " + String(e));
+        schedule();
+        backoff = Math.min(backoff * 2, 30000);
+      }
+
+      function schedule() {
+        if (!mounted) return;
+        if (timer) clearTimeout(timer);
+        timer = window.setTimeout(loop, backoff) as unknown as number;
+      }
+    }
+
+    loop();
+    const poll = window.setInterval(loop, 30000);
+
+    return () => {
+      mounted = false;
+      if (timer) clearTimeout(timer);
+      clearInterval(poll);
+      cleanup();
+    };
+  }, []);
+
+  return (
+    <div style={{maxWidth: 720, margin: "24px auto", fontFamily: "ui-sans-serif,system-ui"}}>
+      <h2 style={{fontWeight: 800, fontSize: 22}}>WebSocket Probe</h2>
+      <div><b>URL:</b> {url || "…"}</div>
+      <div><b>Status:</b> {ready ? "CONNECTED" : "CONNECTING/RETRYING"}</div>
+      <pre style={{whiteSpace:"pre-wrap", background:"#0b0b0b", color:"#ddd", padding:12, borderRadius:8, marginTop:12, maxHeight:360, overflow:"auto"}}>
+        {log.join("\n")}
+      </pre>
+    </div>
+  );
+}
