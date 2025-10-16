@@ -171,9 +171,17 @@ export default function AcidJurassicClicker() {
           backoff = 1000;
           console.debug("WS open", wsUrl);
         };
-        ws.onmessage = (ev) => {
-          try { console.debug("WS msg", JSON.parse((ev as MessageEvent).data)); }
-          catch { console.debug("WS msg raw", (ev as MessageEvent).data); }
+     // replace existing ws.onmessage = (ev) => { ... } with this:
+ws.onmessage = (ev: MessageEvent) => {
+  const raw = ev.data;
+  try {
+    // try parse JSON payload
+    const parsed = JSON.parse(raw as string);
+    console.debug("WS msg", parsed);
+  } catch {
+    // not JSON — print raw
+    console.debug("WS msg raw", raw);
+  }
         };
         ws.onclose = (ev) => {
           if (!mounted) return;
