@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Item = { id: string; label: string };
 type ThingyKey = "BINGO" | "SOUND" | "DRIVEBY" | "TRIVIA";
@@ -39,6 +39,16 @@ const THINGY_BUTTONS: Record<ThingyKey, Item[]> = {
 const TWITCH_AUTHORIZE = "https://id.twitch.tv/oauth2/authorize";
 const TWITCH_VALIDATE = "https://id.twitch.tv/oauth2/validate";
 
+// --- runtime discovery / defaults ---
+// raw gist URL for your current.json (no-cache fetch)
+const GIST_RAW =
+  "https://gist.githubusercontent.com/acidjurassic/4492e7b11e49293078f5e9ad25658d2f/raw/current.json";
+
+// secret used to authenticate websocket messages to Streamer.bot
+// Set VITE_WS_SECRET in Vercel for production; fallback is the test secret
+const WS_SECRET =
+  (import.meta as any).env?.VITE_WS_SECRET || "rAnD0m-ALPHA-1234567890";
+
 export default function AcidJurassicClicker() {
   // Auth
   const [authed, setAuthed] = useState(false);
@@ -51,6 +61,10 @@ export default function AcidJurassicClicker() {
   const [busy, setBusy] = useState(false);
 
   const actionsDisabled = useMemo(() => !authed || !armed, [authed, armed]);
+
+  // ---- WebSocket state ----
+  const wsRef = useRef<WebSocket | null>(null);
+  const [wsReady, setWsReady] = useState(false);
 
   // Validate token
   useEffect(() => {
@@ -111,7 +125,101 @@ export default function AcidJurassicClicker() {
     setActive(null);
   }
 
-  // ⬇️ NEW: call your backend + show clear status messages
+  // --- WS connect effect: fetch gist runtime URL, convert to wss/ws, connect & auto-reconnect ---
+  useEffect(() => {
+    let alive = true;
+
+    async function resolveRelayUrl(): Promise<string> {
+      // 1) try gist raw (no-cache)
+      try {
+        const r = await fetch(GIST_RAW, { cache: "no-store" });
+        if (r.ok) {
+          const j = await r.json();
+          if (j && j.url) return j.url.trim();
+        }
+      } catch (e) {
+        console.debug("Could not fetch gist current.json:", e);
+      }
+
+      // 2) fallback to build-time env (if provided)
+      const buildTime = (import.meta as any).env?.VITE_WS_RELAY_URL;
+      if (buildTime) return buildTime;
+
+      // 3) local dev fallback (useful when testing on the SB machine)
+      return "ws://127.0.0.1:18080/";
+    }
+
+    async function connect() {
+      if (!alive) return;
+      const relay = await resolveRelayUrl();
+      if (!alive || !relay) return;
+
+      // unify to ws/wss scheme
+      let wsUrl = relay;
+      if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace(/^https:/, "wss");
+      if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace(/^http:/, "ws");
+
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          if (!alive) return;
+          setWsReady(true);
+          console.debug("WS open:", wsUrl);
+        };
+
+        ws.onmessage = (ev) => {
+          // optionally handle incoming messages from SB here
+          try {
+            const d = JSON.parse((ev as MessageEvent).data);
+            console.debug("WS incoming:", d);
+          } catch {
+            console.debug("WS incoming raw:", (ev as MessageEvent).data);
+          }
+        };
+
+        ws.onclose = () => {
+          if (!alive) return;
+          setWsReady(false);
+          console.debug("WS closed, reconnecting in 2s...");
+          setTimeout(connect, 2000);
+        };
+
+        ws.onerror = (e) => {
+          console.debug("WS error", e);
+        };
+      } catch (err) {
+        console.warn("WS connect failed:", err);
+        setTimeout(connect, 2000);
+      }
+    }
+
+    connect();
+    return () => {
+      alive = false;
+      try {
+        wsRef.current?.close();
+      } catch {}
+      wsRef.current = null;
+    };
+  }, []);
+
+  // helper: try send via WS, return true if sent
+  function trySendWs(payload: any) {
+    try {
+      if (wsRef.current && wsReady && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify(payload));
+        console.debug("Sent via WS:", payload);
+        return true;
+      }
+    } catch (e) {
+      console.debug("WS send failed:", e);
+    }
+    return false;
+  }
+
+  // ⬇️ UPDATED: trigger prefers WS then falls back to API POST
   async function trigger(item: Item) {
     if (actionsDisabled) {
       setStatus(!authed ? "Login required" : "Safe Mode: controls disabled");
@@ -121,6 +229,22 @@ export default function AcidJurassicClicker() {
 
     setBusy(true);
     try {
+      // Build a minimal payload that SB expects
+      const payload = {
+        actionId: item.id,
+        user: username ?? "viewer",
+        userId: "", // client can't reliably provide numeric user id; server-side validation used before
+        platform: "twitch",
+        secret: WS_SECRET,
+      };
+
+      // 1) try websocket
+      if (trySendWs(payload)) {
+        setStatus(`Triggered: ${item.label} (via WS)`);
+        return;
+      }
+
+      // 2) fallback to your /api/trigger (keeps Twitch validation + cooldown)
       const tok = localStorage.getItem("twitch_token") || "";
       const res = await fetch("/api/trigger", {
         method: "POST",
@@ -143,7 +267,8 @@ export default function AcidJurassicClicker() {
 
       const { user } = await res.json().catch(() => ({ user: "viewer" }));
       setStatus(`Triggered: ${item.label} (by ${user})`);
-    } catch {
+    } catch (err) {
+      console.error("trigger error:", err);
       setStatus("Network error");
     } finally {
       setTimeout(() => setBusy(false), 300); // tiny debounce
@@ -151,8 +276,6 @@ export default function AcidJurassicClicker() {
   }
 
   // ---------- UI ----------
-
-  // STEP 1: Login
   if (!authed) {
     return (
       <section className="rounded-2xl border border-toxic-500/60 bg-neutral-900/95 shadow-[0_0_35px_rgba(0,255,153,0.45),inset_0_0_12px_rgba(0,0,0,0.6)] backdrop-blur-md p-8 text-center max-w-xl mx-auto">
@@ -172,10 +295,8 @@ export default function AcidJurassicClicker() {
     );
   }
 
-  // STEP 2: Tabs + content
   return (
     <section className="rounded-2xl border border-toxic-500/60 bg-neutral-900/95 shadow-[0_0_35px_rgba(0,255,153,0.45),inset_0_0_12px_rgba(0,0,0,0.6)] backdrop-blur-md overflow-hidden max-w-3xl mx-auto transition-all duration-500">
-      {/* Header */}
       <div className="bg-toxic-500/90 text-black px-6 py-5 flex items-center justify-between">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold">The Isla Tóxica Clicker</h2>
@@ -192,7 +313,6 @@ export default function AcidJurassicClicker() {
       </div>
 
       <div className="p-6 sm:p-8">
-        {/* Tabs */}
         <div className="flex flex-wrap gap-4 mb-6">
           {(Object.keys(THINGY_LABEL) as ThingyKey[]).map((key) => {
             const isActive = active === key;
@@ -212,7 +332,6 @@ export default function AcidJurassicClicker() {
           })}
         </div>
 
-        {/* Content */}
         <div className="rounded-xl border border-toxic-500/40 bg-neutral-800/70 p-6 sm:p-8 shadow-inner mb-6">
           {!active ? (
             <div className="text-center">
@@ -249,7 +368,6 @@ export default function AcidJurassicClicker() {
           )}
         </div>
 
-        {/* Single Toggle + Status */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <button
             onClick={() => setArmed((a) => !a)}
@@ -277,3 +395,4 @@ export default function AcidJurassicClicker() {
     </section>
   );
 }
+
