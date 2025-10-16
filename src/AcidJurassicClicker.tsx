@@ -126,20 +126,97 @@ export default function AcidJurassicClicker() {
   }
 
   // --- WS connect effect: fetch gist runtime URL, convert to wss/ws, connect & auto-reconnect ---
-  useEffect(() => {
-    let alive = true;
+// replace your existing "WS connect effect" useEffect with this one
+useEffect(() => {
+  let mounted = true;
+  let backoff = 1000; // ms
+  let reconnectTimer: number | null = null;
+  const pollInterval = 30_000; // 30s poll of current.json
+  let lastRelay = "";
 
-    async function resolveRelayUrl(): Promise<string> {
-      // 1) try gist raw (no-cache)
-      try {
-        const r = await fetch(GIST_RAW, { cache: "no-store" });
-        if (r.ok) {
-          const j = await r.json();
-          if (j && j.url) return j.url.trim();
-        }
-      } catch (e) {
-        console.debug("Could not fetch gist current.json:", e);
-      }
+  async function fetchRelay() {
+    try {
+      const r = await fetch(GIST_RAW, { cache: "no-store" });
+      if (!r.ok) throw new Error("gist fetch failed");
+      const j = await r.json();
+      return j?.url?.trim() ?? "";
+    } catch (e) {
+      console.debug("fetchRelay failed:", e);
+      return "";
+    }
+  }
+
+  async function connectLoop() {
+    if (!mounted) return;
+    const relay = await fetchRelay();
+    if (!mounted) return;
+
+    // nothing changed and socket open? do nothing
+    if (relay && relay === lastRelay && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    // if relay changed, replace protocol and force reconnect
+    lastRelay = relay || lastRelay;
+
+    // normalize to ws/wss
+    let wsUrl = lastRelay;
+    if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace(/^https:/, "wss");
+    if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace(/^http:/, "ws");
+    if (!wsUrl) wsUrl = "ws://127.0.0.1:18080/"; // fallback local dev
+
+    try {
+      // close previous socket if exists
+      try { wsRef.current?.close(); } catch {}
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (!mounted) return;
+        setWsReady(true);
+        backoff = 1000;
+        console.debug("WS open", wsUrl);
+      };
+      ws.onmessage = (ev) => {
+        try { console.debug("WS msg", JSON.parse((ev as MessageEvent).data)); }
+        catch { console.debug("WS msg raw", (ev as MessageEvent).data); }
+      };
+      ws.onclose = (ev) => {
+        if (!mounted) return;
+        setWsReady(false);
+        console.debug("WS closed, will reconnect in", backoff);
+        reconnectTimer = window.setTimeout(connectLoop, backoff);
+        backoff = Math.min(backoff * 2, 30_000); // exponential backoff cap 30s
+      };
+      ws.onerror = (e) => {
+        console.debug("WS error", e);
+      };
+    } catch (err) {
+      console.warn("WS connect failed, scheduling retry", err);
+      reconnectTimer = window.setTimeout(connectLoop, backoff);
+      backoff = Math.min(backoff * 2, 30_000);
+    }
+  }
+
+  // start initial connect immediately
+  connectLoop();
+
+  // poll gist every pollInterval to pick up new relay URL (if you restart cloudflared)
+  const pollId = window.setInterval(() => {
+    // only fetch if not in a tight reconnect loop
+    connectLoop();
+  }, pollInterval);
+
+  return () => {
+    mounted = false;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    clearInterval(pollId);
+    try { wsRef.current?.close(); } catch {}
+    wsRef.current = null;
+    setWsReady(false);
+  };
+}, []);
+
 
       // 2) fallback to build-time env (if provided)
       const buildTime = (import.meta as any).env?.VITE_WS_RELAY_URL;
