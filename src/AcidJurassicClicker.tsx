@@ -126,7 +126,7 @@ export default function AcidJurassicClicker() {
     let mounted = true;
     let backoff = 1000;
     let reconnectTimer: number | null = null;
-    const pollInterval = 300_000; // 30s
+    const pollInterval = 30_000; // 30s
     let lastRelay = "";
 
     async function fetchRelay(): Promise<string> {
