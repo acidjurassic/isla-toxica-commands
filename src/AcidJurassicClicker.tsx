@@ -39,13 +39,11 @@ const THINGY_BUTTONS: Record<ThingyKey, Item[]> = {
 const TWITCH_AUTHORIZE = "https://id.twitch.tv/oauth2/authorize";
 const TWITCH_VALIDATE = "https://id.twitch.tv/oauth2/validate";
 
-// --- runtime discovery / defaults ---
 // raw gist URL for your current.json (no-cache fetch)
 const GIST_RAW =
   "https://gist.githubusercontent.com/acidjurassic/4492e7b11e49293078f5e9ad25658d2f/raw/current.json";
 
 // secret used to authenticate websocket messages to Streamer.bot
-// Set VITE_WS_SECRET in Vercel for production; fallback is the test secret
 const WS_SECRET =
   (import.meta as any).env?.VITE_WS_SECRET || "rAnD0m-ALPHA-1234567890";
 
@@ -125,164 +123,89 @@ export default function AcidJurassicClicker() {
     setActive(null);
   }
 
-  // --- WS connect effect: fetch gist runtime URL, convert to wss/ws, connect & auto-reconnect ---
-// replace your existing "WS connect effect" useEffect with this one
-useEffect(() => {
-  let mounted = true;
-  let backoff = 1000; // ms
-  let reconnectTimer: number | null = null;
-  const pollInterval = 30_000; // 30s poll of current.json
-  let lastRelay = "";
+  // ---------- WS connect effect ----------
+  useEffect(() => {
+    let mounted = true;
+    let backoff = 1000;
+    let reconnectTimer: number | null = null;
+    const pollInterval = 30_000; // 30s
+    let lastRelay = "";
 
-  async function fetchRelay() {
-    try {
-      const r = await fetch(GIST_RAW, { cache: "no-store" });
-      if (!r.ok) throw new Error("gist fetch failed");
-      const j = await r.json();
-      return j?.url?.trim() ?? "";
-    } catch (e) {
-      console.debug("fetchRelay failed:", e);
-      return "";
-    }
-  }
-
-  async function connectLoop() {
-    if (!mounted) return;
-    const relay = await fetchRelay();
-    if (!mounted) return;
-
-    // nothing changed and socket open? do nothing
-    if (relay && relay === lastRelay && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      return;
+    async function fetchRelay(): Promise<string> {
+      try {
+        const r = await fetch(GIST_RAW, { cache: "no-store" });
+        if (!r.ok) throw new Error("gist fetch failed");
+        const j = await r.json();
+        return (j?.url ?? "").trim();
+      } catch (e) {
+        console.debug("fetchRelay failed:", e);
+        return "";
+      }
     }
 
-    // if relay changed, replace protocol and force reconnect
-    lastRelay = relay || lastRelay;
+    async function connectLoop() {
+      if (!mounted) return;
+      const relay = await fetchRelay();
+      if (!mounted) return;
 
-    // normalize to ws/wss
-    let wsUrl = lastRelay;
-    if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace(/^https:/, "wss");
-    if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace(/^http:/, "ws");
-    if (!wsUrl) wsUrl = "ws://127.0.0.1:18080/"; // fallback local dev
+      if (relay && relay === lastRelay && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        // already connected to this relay
+        return;
+      }
 
-    try {
-      // close previous socket if exists
-      try { wsRef.current?.close(); } catch {}
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      lastRelay = relay || lastRelay;
 
-      ws.onopen = () => {
-        if (!mounted) return;
-        setWsReady(true);
-        backoff = 1000;
-        console.debug("WS open", wsUrl);
-      };
-      ws.onmessage = (ev) => {
-        try { console.debug("WS msg", JSON.parse((ev as MessageEvent).data)); }
-        catch { console.debug("WS msg raw", (ev as MessageEvent).data); }
-      };
-      ws.onclose = (ev) => {
-        if (!mounted) return;
-        setWsReady(false);
-        console.debug("WS closed, will reconnect in", backoff);
-        reconnectTimer = window.setTimeout(connectLoop, backoff);
-        backoff = Math.min(backoff * 2, 30_000); // exponential backoff cap 30s
-      };
-      ws.onerror = (e) => {
-        console.debug("WS error", e);
-      };
-    } catch (err) {
-      console.warn("WS connect failed, scheduling retry", err);
-      reconnectTimer = window.setTimeout(connectLoop, backoff);
-      backoff = Math.min(backoff * 2, 30_000);
-    }
-  }
-
-  // start initial connect immediately
-  connectLoop();
-
-  // poll gist every pollInterval to pick up new relay URL (if you restart cloudflared)
-  const pollId = window.setInterval(() => {
-    // only fetch if not in a tight reconnect loop
-    connectLoop();
-  }, pollInterval);
-
-  return () => {
-    mounted = false;
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    clearInterval(pollId);
-    try { wsRef.current?.close(); } catch {}
-    wsRef.current = null;
-    setWsReady(false);
-  };
-}, []);
-
-
-      // 2) fallback to build-time env (if provided)
-      const buildTime = (import.meta as any).env?.VITE_WS_RELAY_URL;
-      if (buildTime) return buildTime;
-
-      // 3) local dev fallback (useful when testing on the SB machine)
-      return "ws://127.0.0.1:18080/";
-    }
-
-    async function connect() {
-      if (!alive) return;
-      const relay = await resolveRelayUrl();
-      if (!alive || !relay) return;
-
-      // unify to ws/wss scheme
-      let wsUrl = relay;
+      let wsUrl = lastRelay;
       if (wsUrl.startsWith("https://")) wsUrl = wsUrl.replace(/^https:/, "wss");
       if (wsUrl.startsWith("http://")) wsUrl = wsUrl.replace(/^http:/, "ws");
+      if (!wsUrl) wsUrl = "ws://127.0.0.1:18080/"; // local dev fallback
 
       try {
+        try { wsRef.current?.close(); } catch {}
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
-          if (!alive) return;
+          if (!mounted) return;
           setWsReady(true);
-          console.debug("WS open:", wsUrl);
+          backoff = 1000;
+          console.debug("WS open", wsUrl);
         };
-
         ws.onmessage = (ev) => {
-          // optionally handle incoming messages from SB here
-          try {
-            const d = JSON.parse((ev as MessageEvent).data);
-            console.debug("WS incoming:", d);
-          } catch {
-            console.debug("WS incoming raw:", (ev as MessageEvent).data);
-          }
+          try { console.debug("WS msg", JSON.parse((ev as MessageEvent).data)); }
+          catch { console.debug("WS msg raw", (ev as MessageEvent).data); }
         };
-
-        ws.onclose = () => {
-          if (!alive) return;
+        ws.onclose = (ev) => {
+          if (!mounted) return;
           setWsReady(false);
-          console.debug("WS closed, reconnecting in 2s...");
-          setTimeout(connect, 2000);
+          console.debug("WS closed, will reconnect in", backoff);
+          reconnectTimer = window.setTimeout(connectLoop, backoff);
+          backoff = Math.min(backoff * 2, 30_000);
         };
-
         ws.onerror = (e) => {
           console.debug("WS error", e);
         };
       } catch (err) {
-        console.warn("WS connect failed:", err);
-        setTimeout(connect, 2000);
+        console.warn("WS connect failed, scheduling retry", err);
+        reconnectTimer = window.setTimeout(connectLoop, backoff);
+        backoff = Math.min(backoff * 2, 30_000);
       }
     }
 
-    connect();
+    connectLoop();
+    const pollId = window.setInterval(() => connectLoop(), pollInterval);
+
     return () => {
-      alive = false;
-      try {
-        wsRef.current?.close();
-      } catch {}
+      mounted = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      clearInterval(pollId);
+      try { wsRef.current?.close(); } catch {}
       wsRef.current = null;
+      setWsReady(false);
     };
   }, []);
 
-  // helper: try send via WS, return true if sent
+  // helper: send via WS if possible
   function trySendWs(payload: any) {
     try {
       if (wsRef.current && wsReady && wsRef.current.readyState === WebSocket.OPEN) {
@@ -296,38 +219,34 @@ useEffect(() => {
     return false;
   }
 
-  // ⬇️ UPDATED: trigger prefers WS then falls back to API POST
+  // trigger: prefer WS, fallback to API POST
   async function trigger(item: Item) {
     if (actionsDisabled) {
       setStatus(!authed ? "Login required" : "Safe Mode: controls disabled");
       return;
     }
     if (busy) return;
-
     setBusy(true);
     try {
-      // Build a minimal payload that SB expects
       const payload = {
         actionId: item.id,
         user: username ?? "viewer",
-        userId: "", // client can't reliably provide numeric user id; server-side validation used before
+        userId: "",
         platform: "twitch",
         secret: WS_SECRET,
       };
 
-      // 1) try websocket
       if (trySendWs(payload)) {
         setStatus(`Triggered: ${item.label} (via WS)`);
         return;
       }
 
-      // 2) fallback to your /api/trigger (keeps Twitch validation + cooldown)
       const tok = localStorage.getItem("twitch_token") || "";
       const res = await fetch("/api/trigger", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `OAuth ${tok}`, // backend validates with Twitch
+          Authorization: `OAuth ${tok}`,
         },
         body: JSON.stringify({ actionId: item.id }),
       });
@@ -348,7 +267,7 @@ useEffect(() => {
       console.error("trigger error:", err);
       setStatus("Network error");
     } finally {
-      setTimeout(() => setBusy(false), 300); // tiny debounce
+      setTimeout(() => setBusy(false), 300);
     }
   }
 
